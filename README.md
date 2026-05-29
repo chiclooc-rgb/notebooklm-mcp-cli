@@ -509,6 +509,16 @@ You can also call `refresh_auth()` to explicitly reload tokens.
 
 If automatic refresh fails (Google login fully expired), run `nlm login` again.
 
+For unattended jobs, run a non-interactive preflight before queries:
+
+```bash
+nlm login --headless-refresh --profile default
+```
+
+It validates the saved profile and refreshes from the managed browser profile
+without opening a visible login window. It cannot recover a fully expired Google
+login; that still requires one interactive `nlm login`.
+
 ## Troubleshooting
 
 ### `uv tool upgrade` Not Installing Latest Version

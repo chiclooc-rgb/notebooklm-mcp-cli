@@ -133,6 +133,16 @@ def login_callback(
         "--check",
         help="Only check if current auth is valid",
     ),
+    headless_refresh: bool = typer.Option(
+        False,
+        "--headless-refresh",
+        help="Validate auth and, if needed, refresh from the saved browser profile without opening a visible login window",
+    ),
+    headless_timeout: int = typer.Option(
+        45,
+        "--headless-timeout",
+        help="Seconds to wait for headless auth refresh",
+    ),
     profile: str | None = typer.Option(
         None,
         "--profile",
@@ -177,6 +187,8 @@ def login_callback(
     Default: Uses Chrome DevTools Protocol to extract cookies automatically.
     Use --manual to import cookies from a file.
     Use --check to validate existing credentials.
+    Use --headless-refresh for unattended refresh from a previously logged-in
+    managed browser profile. It never opens an interactive login window.
     Use --provider openclaw --cdp-url <url> to read auth from an existing
     OpenClaw-managed browser CDP endpoint.
     Use --wsl on WSL2 to launch Windows Chrome and avoid terminal corruption.
@@ -217,6 +229,60 @@ def login_callback(
                 console.print(f"[dim]{e.hint}[/dim]")
             raise typer.Exit(2) from e
         return
+
+    if headless_refresh:
+        # Non-interactive maintenance path: validate first, then try the
+        # persisted auth browser profile in headless mode.  This intentionally
+        # does not fall through to the visible login flow.
+        try:
+            p, notebook_count = _validate_saved_profile(auth)
+            console.print(f"[dim]Checking credentials for profile: {p.name}...[/dim]")
+            _print_auth_valid(p, notebook_count)
+            return
+        except NLMError as initial_error:
+            existing_email = None
+            existing_build_label = None
+            with contextlib.suppress(Exception):
+                existing = auth.load_profile(force_reload=True)
+                existing_email = existing.email
+                existing_build_label = existing.build_label
+
+            console.print(
+                f"[yellow]Authentication check failed:[/yellow] {initial_error.message}"
+            )
+            console.print(
+                f"[dim]Trying headless refresh for profile '{profile}' "
+                f"(timeout: {headless_timeout}s)...[/dim]"
+            )
+
+            from notebooklm_tools.utils.auth_browser import run_headless_auth
+
+            tokens = run_headless_auth(profile_name=profile, timeout=headless_timeout)
+            if not tokens:
+                console.print("[red]✗[/red] Headless refresh failed.")
+                console.print(
+                    "[dim]Run 'nlm login --profile "
+                    f"{profile}' once to restore the managed browser session.[/dim]"
+                )
+                raise typer.Exit(2) from initial_error
+
+            auth.save_profile(
+                cookies=tokens.cookies,
+                csrf_token=tokens.csrf_token or None,
+                session_id=tokens.session_id or None,
+                email=existing_email,
+                build_label=tokens.build_label or existing_build_label,
+            )
+
+            try:
+                p, notebook_count = _validate_saved_profile(auth)
+                _print_auth_valid(p, notebook_count)
+            except NLMError as e:
+                console.print(f"[red]✗[/red] Headless refresh did not produce valid auth: {e.message}")
+                if e.hint:
+                    console.print(f"[dim]{e.hint}[/dim]")
+                raise typer.Exit(2) from e
+            return
 
     if manual:
         # Manual mode - read from file

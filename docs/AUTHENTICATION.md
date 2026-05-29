@@ -78,6 +78,20 @@ The dedicated browser profile persists your Google login:
 
 This profile is separate from your regular browser profile. Chromium profiles disable extensions.
 
+### Unattended Refresh
+
+For scheduled jobs or CLI wrappers, use the headless refresh mode. It validates
+the stored profile first, then tries to refresh cookies from the saved managed
+browser profile without opening an interactive login window:
+
+```bash
+nlm login --headless-refresh --profile default
+```
+
+This only works after a successful interactive `nlm login` has already created
+and logged into the managed browser profile. If Google fully expires that login,
+run `nlm login --profile <name>` once to restore it.
+
 ---
 
 ## Multi-Profile Support

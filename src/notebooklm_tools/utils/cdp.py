@@ -1485,12 +1485,14 @@ def run_headless_auth(
         # html already fetched by _wait_for_page_ready
         csrf_token = extract_csrf_token(html)
         session_id = extract_session_id(html)
+        build_label = extract_build_label(html)
 
         # Create and save tokens
         tokens = AuthTokens(
             cookies=cookies,
             csrf_token=csrf_token or "",
             session_id=session_id or "",
+            build_label=build_label or "",
             extracted_at=time.time(),
         )
         save_tokens_to_cache(tokens)

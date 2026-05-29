@@ -882,6 +882,37 @@ class BaseClient:
         """
         from .auth import load_cached_tokens
 
+        def _cookie_dict(cookies: Any) -> dict[str, str]:
+            if isinstance(cookies, list):
+                return {
+                    c["name"]: c["value"]
+                    for c in cookies
+                    if isinstance(c, dict) and "name" in c and "value" in c
+                }
+            if isinstance(cookies, dict):
+                return dict(cookies)
+            return {}
+
+        def _apply_tokens(tokens: Any) -> None:
+            with self._state_lock:
+                self.cookies = tokens.cookies
+                self.csrf_token = tokens.csrf_token or ""
+                self._session_id = tokens.session_id or ""
+                if getattr(tokens, "build_label", ""):
+                    self._bl = tokens.build_label
+
+        def _try_headless_auth() -> bool:
+            try:
+                from notebooklm_tools.utils.cdp import run_headless_auth
+
+                tokens = run_headless_auth()
+                if tokens and tokens.cookies:
+                    _apply_tokens(tokens)
+                    return True
+            except Exception as e:
+                logger.debug(f"Headless auth failed: {e}")
+            return False
+
         # Layer 2: Reload cookies from disk (profile or legacy auth.json).
         # load_cached_tokens() checks the default profile first, then falls
         # back to the legacy auth.json file.  We no longer gate on
@@ -889,6 +920,12 @@ class BaseClient:
         # credentials (from `nlm login`) are not skipped.
         cached = load_cached_tokens()
         if cached and cached.cookies:
+            # Disk has the same cookies that already failed.  If the managed
+            # browser profile is still logged in, refresh from it before
+            # retrying the known-bad cache.
+            if _cookie_dict(cached.cookies) == _cookie_dict(self.cookies) and _try_headless_auth():
+                return True
+
             # Always reload from disk when auth fails - current tokens are known-bad
             # The cached tokens may be fresher (user ran nlm login)
             # or the same, but worth retrying with a fresh CSRF token extraction
@@ -896,20 +933,9 @@ class BaseClient:
                 self.cookies = cached.cookies
                 self.csrf_token = ""  # Force re-extraction of CSRF token
                 self._session_id = ""  # Force re-extraction of session ID
+                if cached.build_label:
+                    self._bl = cached.build_label
             return True
 
         # Try headless auth if Chrome profile exists
-        try:
-            from notebooklm_tools.utils.cdp import run_headless_auth
-
-            tokens = run_headless_auth()
-            if tokens:
-                with self._state_lock:
-                    self.cookies = tokens.cookies
-                    self.csrf_token = tokens.csrf_token
-                    self._session_id = tokens.session_id
-                return True
-        except Exception as e:
-            logger.debug(f"Headless auth failed: {e}")
-
-        return False
+        return _try_headless_auth()
