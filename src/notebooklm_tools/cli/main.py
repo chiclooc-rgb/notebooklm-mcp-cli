@@ -100,13 +100,17 @@ def _validate_saved_profile(auth: Any) -> tuple[Any, int]:
         build_label=p.build_label or "",
     ) as client:
         notebooks = client.list_notebooks()
+        cookies = client.cookies
+        csrf_token = client.csrf_token or p.csrf_token
+        session_id = getattr(client, "_session_id", "") or p.session_id
+        build_label = getattr(client, "_bl", "") or p.build_label
 
     auth.save_profile(
-        cookies=p.cookies,
-        csrf_token=p.csrf_token,
-        session_id=p.session_id,
+        cookies=cookies,
+        csrf_token=csrf_token,
+        session_id=session_id,
         email=p.email,
-        build_label=p.build_label,
+        build_label=build_label,
     )
     return p, len(notebooks)
 
